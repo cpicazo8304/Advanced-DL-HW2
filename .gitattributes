@@ -1,0 +1,32 @@
+# Make text files use LF line endings in the repo
+* text=auto eol=lf
+
+# Python source files
+*.py     text eol=lf
+
+# Jupyter notebooks (JSON format, should also use LF)
+*.ipynb  text eol=lf
+
+# Configuration and documentation
+*.txt    text eol=lf
+*.md     text eol=lf
+*.json   text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.toml   text eol=lf
+*.ini    text eol=lf
+
+# Windows-only scripts can explicitly be CRLF
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+
+# Binary files (Git should never touch line endings)
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.pdf    binary
+*.zip    binary
+*.gz     binary
+*.tar    binary
+*.pkl    binary
