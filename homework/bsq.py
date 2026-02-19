@@ -3,6 +3,7 @@ import abc
 import torch
 
 from .ae import PatchAutoEncoder
+from .ae import hwc_to_chw, chw_to_hwc
 
 
 def load() -> torch.nn.Module:
@@ -46,7 +47,10 @@ class Tokenizer(abc.ABC):
 class BSQ(torch.nn.Module):
     def __init__(self, codebook_bits: int, embedding_dim: int):
         super().__init__()
-        raise NotImplementedError()
+        self._codebook_bits = codebook_bits
+        self.project_down = torch.nn.Linear(embedding_dim, codebook_bits)
+        self.project_up = torch.nn.Linear(codebook_bits, embedding_dim)
+
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -55,14 +59,16 @@ class BSQ(torch.nn.Module):
         - L2 normalization
         - differentiable sign
         """
-        raise NotImplementedError()
+        proj = self.project_down(x)
+        proj_norm = proj / proj.norm(dim=-1, keepdim=True)
+        return diff_sign(proj_norm)
 
     def decode(self, x: torch.Tensor) -> torch.Tensor:
         """
         Implement the BSQ decoder:
         - A linear up-projection into embedding_dim should suffice
         """
-        raise NotImplementedError()
+        return self.project_up(x)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.decode(self.encode(x))
@@ -97,19 +103,43 @@ class BSQPatchAutoEncoder(PatchAutoEncoder, Tokenizer):
 
     def __init__(self, patch_size: int = 5, latent_dim: int = 128, codebook_bits: int = 10):
         super().__init__(patch_size=patch_size, latent_dim=latent_dim)
-        raise NotImplementedError()
+        self.patch_ae = PatchAutoEncoder(patch_size, latent_dim, latent_dim)
+        self.bsq = BSQ(codebook_bits, latent_dim)
 
     def encode_index(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError()
+        """
+        Get the integer index in the codebook that represents the patch.
+        """
+        return self.bsq._code_to_index(self.encode(x))
 
     def decode_index(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError()
+        """
+        Given the integer index, get the image corresponding with that
+        index.
+        """
+        return self.decode(self.bsq._index_to_code(x))
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError()
+        """
+        Encode image into a patch sized codebook bits embedding
+        of just -1 or 1 values. 
+        image -> patch -> bottleneck -> codebook
+        """
+        x = self.patch_ae.encode(x)
+        x = chw_to_hwc(x)                # → HWC so Linear works on last dim
+        x = self.bsq.encode(x)
+        return x
 
     def decode(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError()
+        """
+        Decode codebook embedding back to image.
+        codebook -> bottleneck -> patch -> image
+        """
+        x = self.bsq.decode(x)
+        x = hwc_to_chw(x)                # → CHW for patch decoder
+        x = self.patch_ae.decode(x)
+        return x
+        
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
@@ -127,4 +157,10 @@ class BSQPatchAutoEncoder(PatchAutoEncoder, Tokenizer):
                 ...
               }
         """
-        raise NotImplementedError()
+        z = self.encode(x)
+        reconstruction = self.decode(z)
+        cnt = torch.bincount(self.bsq._code_to_index(z), minlength=2**self.bsq._codebook_bits)
+        return reconstruction, {
+          "cb0": (cnt == 0).float().mean().detach(),
+          "cb2": (cnt <= 2).float().mean().detach(),
+        }
