@@ -55,10 +55,65 @@ class AutoregressiveModel(torch.nn.Module, Autoregressive):
 
     def __init__(self, d_latent: int = 128, n_tokens: int = 2**10):
         super().__init__()
-        raise NotImplementedError()
+        self.embedding = torch.nn.Embedding(n_tokens, d_latent)
+        encoder_layer = torch.nn.TransformerEncoderLayer(
+            d_model=128,
+            nhead=8,
+            dim_feedforward=512,
+            dropout=0.1,
+            activation='gelu',
+            batch_first=True,
+        )
+
+        self.transformer = torch.nn.TransformerEncoder(
+          encoder_layer,
+          4
+        )
+
+        self.output_layer = torch.nn.Linear(d_latent, n_tokens)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        raise NotImplementedError()
+        B, h, w = x.shape
+
+        mask = torch.nn.Transformer.generate_square_subsequent_mask(h * w, device=x.device)
+
+        # flatten to sequence
+        x = x.flatten(1)  # (B, seq_len)
+
+        # embed tokens
+        x = self.embedding(x)  # (B, seq_len, d_model)
+
+        # shift by 1
+        zeros = torch.zeros(B, 1, x.size(-1), device=x.device)
+        x = torch.cat([zeros, x[:, :-1, :]], dim=1)
+
+        # pass through transformer with causal mask
+        x = self.transformer(x, mask=mask)  # (B, seq_len, d_model)
+
+        # project to logits over vocabulary
+        x = self.output_layer(x)  # (B, seq_len, 2**codebook_bits)
+
+        x = x.reshape(B, h, w, -1)  # reshape back to (B, h, w, n_tokens)
+        return x, {}
 
     def generate(self, B: int = 1, h: int = 30, w: int = 20, device=None) -> torch.Tensor:  # noqa
-        raise NotImplementedError()
+        tokens = torch.zeros(B, h, w, dtype=torch.long, device=device)
+
+        # go pixel by pixel and predict the next pixel using autoregressive model
+        # sample based on the probs given
+        for i in range(h*w):
+          logits, _ = self.forward(tokens)
+
+          # flatten h,w then grab position i
+          logits_i = logits.reshape(B, h*w, -1)[:, i, :]  # (B, n_tokens)
+
+          # get probabilities
+          probs = torch.softmax(logits_i, dim=-1)
+          token = torch.multinomial(probs, num_samples=1).squeeze(-1)  # (B,)
+
+          # update token at positive r, c
+          r, c = i // w, i % w
+          tokens[:, r, c] = token
+
+        return tokens
+
