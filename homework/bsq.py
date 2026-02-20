@@ -159,7 +159,7 @@ class BSQPatchAutoEncoder(PatchAutoEncoder, Tokenizer):
         """
         z = self.encode(x)
         reconstruction = self.decode(z)
-        cnt = torch.bincount(self.bsq._code_to_index(z), minlength=2**self.bsq._codebook_bits)
+        cnt = torch.bincount(self.bsq._code_to_index(z).flatten(), minlength=2**self.bsq._codebook_bits)
         return reconstruction, {
           "cb0": (cnt == 0).float().mean().detach(),
           "cb2": (cnt <= 2).float().mean().detach(),
