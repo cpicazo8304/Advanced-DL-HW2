@@ -126,7 +126,6 @@ class BSQPatchAutoEncoder(PatchAutoEncoder, Tokenizer):
         image -> patch -> bottleneck -> codebook
         """
         x = self.patch_ae.encode(x)
-        x = chw_to_hwc(x)                # → HWC so Linear works on last dim
         x = self.bsq.encode(x)
         return x
 
@@ -136,7 +135,6 @@ class BSQPatchAutoEncoder(PatchAutoEncoder, Tokenizer):
         codebook -> bottleneck -> patch -> image
         """
         x = self.bsq.decode(x)
-        x = hwc_to_chw(x)                # → CHW for patch decoder
         x = self.patch_ae.decode(x)
         return x
         
