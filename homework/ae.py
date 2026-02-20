@@ -123,6 +123,12 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
             self.conv = torch.nn.Sequential(
                 torch.nn.Conv2d(latent_dim, latent_dim, 3, padding=1, bias=False),
                 GELU(),
+                torch.nn.Conv2d(latent_dim, latent_dim, 3, padding=1, bias=False),
+                GELU(),
+                torch.nn.Conv2d(latent_dim, latent_dim, 3, padding=1, bias=False),
+                GELU(),
+                torch.nn.Conv2d(latent_dim, latent_dim, 3, padding=1, bias=False),
+                GELU(),
                 torch.nn.Conv2d(latent_dim, bottleneck, 1, bias=False),
             )
 
@@ -138,6 +144,12 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
             # brings the latent state z back to image space
             self.conv = torch.nn.Sequential(
                 torch.nn.Conv2d(bottleneck, latent_dim, 1, bias=False),
+                GELU(),
+                torch.nn.Conv2d(latent_dim, latent_dim, 1, bias=False),
+                GELU(),
+                torch.nn.Conv2d(latent_dim, latent_dim, 1, bias=False),
+                GELU(),
+                torch.nn.Conv2d(latent_dim, latent_dim, 1, bias=False),
                 GELU(),
                 torch.nn.Conv2d(latent_dim, latent_dim, 3, padding=1, bias=False),
             )
@@ -166,7 +178,9 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
         return reconstruction, {}
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
-        return self.encoder(x)
+        x = self.encoder(x)        # returns CHW
+        return chw_to_hwc(x)       # convert to HWC so last dim = bottleneck
 
     def decode(self, x: torch.Tensor) -> torch.Tensor:
-        return self.decoder(x)
+        x = hwc_to_chw(x)          # convert HWC input to CHW
+        return self.decoder(x)     # decoder expects CHW
