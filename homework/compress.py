@@ -21,14 +21,85 @@ class Compressor:
 
         Use arithmetic coding.
         """
-        raise NotImplementedError()
+        # tokenize image
+        tokens = self.tokenizer.encode_index(x)  # (B, h, w)
+        B, h, w = tokens.shape
+
+        # get all probabilities at once
+        logits, _ = self.autoregressive.forward(tokens)  # (B, h, w, n_tokens)
+        probs = torch.softmax(logits, dim=-1)  # (B, h, w, n_tokens)
+
+        # arithmetic coding
+        low, high = 0.0, 1.0
+
+        for i in range(h * w):
+            r, c = i // w, i % w
+
+            # get prob distribution at position i
+            p = probs[0, r, c, :]  # (n_tokens,)
+
+            # get cumulative probs (CDF)
+            cdf = torch.cumsum(p, dim=0)
+            cdf = torch.cat([torch.tensor([0.0]), cdf])  # prepend 0
+
+            # get actual token at position i
+            token = tokens[0, r, c].item()
+
+            # narrow interval
+            width = high - low
+            high = low + width * cdf[token + 1].item()
+            low = low + width * cdf[token].item()
+
+        # pick a number in the middle of the final interval
+        code = (low + high) / 2.0
+
+        # convert float to bytes
+        import struct
+        return struct.pack('d', code)  # 'd' = double = 8 bytes
+        
 
     def decompress(self, x: bytes) -> torch.Tensor:
         """
         Decompress a tensor into a PIL image.
         You may assume the output image is 150 x 100 pixels.
         """
-        raise NotImplementedError()
+        import struct
+    
+        # unpack the float
+        code = struct.unpack('d', x)[0]
+        
+        h, w = 150, 100  # need to know the shape ahead of time
+        B = 1
+        
+        tokens = torch.zeros(B, h, w, dtype=torch.long)
+        
+        low, high = 0.0, 1.0
+        
+        for i in range(h * w):
+            r, c = i // w, i % w
+            
+            # get probs at position i using tokens generated so far
+            logits, _ = self.autoregressive.forward(tokens)
+            p = torch.softmax(logits, dim=-1)[0, r, c, :]  # (n_tokens,)
+            
+            # build CDF
+            cdf = torch.cumsum(p, dim=0)
+            cdf = torch.cat([torch.tensor([0.0]), cdf])
+            
+            # normalize code to current interval
+            normalized = (code - low) / (high - low)
+            
+            # find which token's interval the code falls in
+            token = (cdf <= normalized).sum().item() - 1
+            tokens[0, r, c] = token
+            
+            # narrow interval same as encoding
+            width = high - low
+            high = low + width * cdf[token + 1].item()
+            low = low + width * cdf[token].item()
+        
+        # detokenize back to image
+        return self.tokenizer.decode_index(tokens)
 
 
 def compress(tokenizer: Path, autoregressive: Path, image: Path, compressed_image: Path):
